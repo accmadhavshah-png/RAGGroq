@@ -1,0 +1,14 @@
+# Exclude local-heavy artifacts from the Vercel deployment.
+# The bundled api/data/index.json already contains the precomputed index.
+chroma_db/
+knowledge_base/
+__pycache__/
+*.pyc
+tests/
+scripts/
+support_rag.py
+app.py
+requirements.txt
+.env
+.env.example
+README.md
