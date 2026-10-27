@@ -1,0 +1,23 @@
+# API layer
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.30.0,<1.0.0
+pydantic>=2.8.0,<3.0.0
+python-dotenv>=1.0.1,<2.0.0
+
+# Groq hosted inference
+# The model ID is configured in .env and can be changed when provider offerings change.
+groq>=0.30.0,<2.0.0
+
+# Reused Experiment 5 document loading, chunking, embeddings, and ChromaDB approach
+langchain-community==0.3.31
+langchain-huggingface==0.3.1
+langchain-text-splitters==0.3.11
+sentence-transformers==5.1.1
+pypdf==6.1.1
+docx2txt==0.9
+chardet>=5.2.0,<6.0.0
+chromadb==1.1.1
+
+# Automated endpoint tests
+httpx>=0.27.0,<1.0.0
+pytest>=8.0.0,<9.0.0
