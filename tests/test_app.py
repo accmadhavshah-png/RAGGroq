@@ -23,6 +23,16 @@ class FailingRAG:
         raise GroqRequestError("Private upstream details must not be exposed")
 
 
+class EmptyRAG:
+    def answer_question(self, question: str) -> dict:
+        return {
+            "answer": "The supplied documents do not provide enough information to answer this question.",
+            "sources": [],
+            "retrieved_count": 0,
+            "model": "test-model",
+        }
+
+
 def test_health_endpoint_reports_api_process():
     response = client.get("/health")
     assert response.status_code == 200
@@ -49,6 +59,14 @@ def test_empty_question_is_rejected():
 def test_question_over_1000_characters_is_rejected():
     response = client.post("/ask", json={"question": "x" * 1001})
     assert response.status_code == 422
+
+
+def test_unsupported_question_returns_insufficient_information(monkeypatch):
+    monkeypatch.setattr(api_module, "get_rag_service", lambda: EmptyRAG())
+    response = client.post("/ask", json={"question": "What is the Wi-Fi password?"})
+    assert response.status_code == 200
+    assert response.json()["retrieved_count"] == 0
+    assert "do not provide enough information" in response.json()["answer"]
 
 
 def test_backend_failure_is_controlled(monkeypatch):

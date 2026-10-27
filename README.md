@@ -14,7 +14,9 @@ This project adapts the attached **Experiment 5: Healthcare RAG Using Multiple F
 | Heuristic similarity cutoff of 0.30 | `MIN_SIMILARITY=0.30` |
 | Local Qwen model generates the answer | Replaced by Groq chat completions |
 
-The embedding model and vector index are initialized once per API process, not reloaded for each question. Groq is the generation backend only: it does not perform the document retrieval.
+In the local API, the embedding model and vector index are initialized once
+per API process, not reloaded for each question. Groq is the generation
+backend only: it does not perform document retrieval.
 
 ## Project files
 
@@ -22,7 +24,8 @@ The embedding model and vector index are initialized once per API process, not r
 experiment7_groq_rag/
 ├── app.py                         # FastAPI /health and /ask endpoints
 ├── support_rag.py                 # Experiment 5 pipeline and Groq backend
-├── requirements-local.txt         # Local app and index-builder dependencies
+├── requirements.txt               # Lightweight Vercel dependencies
+├── requirements-local.txt         # Full local app and index-builder dependencies
 ├── api/                           # Lightweight Vercel serverless API
 ├── .env.example                   # Configuration template, no real API key
 ├── .gitignore                     # Excludes secrets and local vector database
@@ -30,7 +33,7 @@ experiment7_groq_rag/
 │   └── demo_healthcare_notes.txt  # Small test source, not a full guideline
 ├── tests/
 │   └── test_app.py                # Automated endpoint tests, no Groq quota used
-└── Experiment_7_Lab_Report.md     # Lab report and viva answers
+└── Experiment_7_Lab_Report.md     # Lab report, observations, and viva answers
 ```
 
 ## 1. Requirements
@@ -52,11 +55,11 @@ Open a terminal in the `experiment7_groq_rag` folder.
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-local.txt
 Copy-Item .env.example .env
 ```
 
-If PowerShell blocks activation, you may use the virtual environment interpreter directly: `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
+If PowerShell blocks activation, you may use the virtual environment interpreter directly: `.\.venv\Scripts\python.exe -m pip install -r requirements-local.txt`.
 
 ### macOS/Linux
 
@@ -64,7 +67,7 @@ If PowerShell blocks activation, you may use the virtual environment interpreter
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-local.txt
 cp .env.example .env
 ```
 
@@ -99,8 +102,9 @@ Vercel deploys `api/index.py` and installs only `api/requirements.txt`. The
 serverless API reads the committed `api/data/index.json` file and performs
 lightweight BM25-style lexical retrieval using the Python standard library.
 It does not install `fastembed`, PyTorch, or ChromaDB, which keeps the Python
-function below Vercel's bundle-size limit. `fastembed` remains available in
-`requirements-local.txt` only for rebuilding the optional local index.
+function below Vercel's bundle-size limit. The heavier local packages remain
+available in `requirements-local.txt` for the local Experiment 7 pipeline and
+optional index rebuilding.
 
 Set `GROQ_API_KEY` in the Vercel project environment variables, then redeploy
 from the `main` branch. The other deployment settings in `vercel.json` provide
