@@ -8,7 +8,6 @@ tests/
 scripts/
 support_rag.py
 app.py
-requirements.txt
 .env
 .env.example
 README.md
