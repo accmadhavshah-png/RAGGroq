@@ -11,8 +11,8 @@ client = TestClient(api_module.app)
 class FakeRAG:
     def answer_question(self, question: str) -> dict:
         return {
-            "answer": "The WHO excerpt defines adolescence as ages 10 to 19 [1].",
-            "sources": [{"citation": "[1]", "source": "demo_healthcare_notes.txt", "similarity": 0.8}],
+            "answer": "Standard shipping usually takes 3-5 business days [1].",
+            "sources": [{"citation": "[1]", "source": "Orders_and_Shipping.pdf", "similarity": 0.8}],
             "retrieved_count": 1,
             "model": "test-model",
         }
@@ -37,7 +37,7 @@ def test_health_endpoint_reports_api_process():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["service"] == "experiment7-healthcare-rag-api"
+    assert response.json()["service"] == "experiment7-customer-support-rag-api"
 
 
 def test_valid_question_returns_answer_and_latency(monkeypatch):
@@ -45,7 +45,7 @@ def test_valid_question_returns_answer_and_latency(monkeypatch):
     response = client.post("/ask", json={"question": "What age range is adolescence?"})
     assert response.status_code == 200
     payload = response.json()
-    assert "adolescence" in payload["answer"].lower()
+    assert "shipping" in payload["answer"].lower()
     assert payload["sources"]
     assert payload["latency_ms"] >= 0
     assert payload["request_id"]
@@ -63,7 +63,9 @@ def test_question_over_1000_characters_is_rejected():
 
 def test_unsupported_question_returns_insufficient_information(monkeypatch):
     monkeypatch.setattr(api_module, "get_rag_service", lambda: EmptyRAG())
-    response = client.post("/ask", json={"question": "What is the Wi-Fi password?"})
+    response = client.post(
+        "/ask", json={"question": "What is the weather forecast for Mars tomorrow?"}
+    )
     assert response.status_code == 200
     assert response.json()["retrieved_count"] == 0
     assert "do not provide enough information" in response.json()["answer"]
@@ -71,7 +73,7 @@ def test_unsupported_question_returns_insufficient_information(monkeypatch):
 
 def test_backend_failure_is_controlled(monkeypatch):
     monkeypatch.setattr(api_module, "get_rag_service", lambda: FailingRAG())
-    response = client.post("/ask", json={"question": "What does INN stand for?"})
+    response = client.post("/ask", json={"question": "What is the store policy?"})
     assert response.status_code == 502
     assert response.json()["detail"] == (
         "The language-model provider failed or is temporarily unavailable. Please try again later."

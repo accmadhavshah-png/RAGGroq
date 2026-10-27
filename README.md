@@ -1,6 +1,7 @@
-# Experiment 7: Preparing a Healthcare RAG Application for Production-Ready Deployment
+# Experiment 7: Preparing a Customer Support RAG Application for Production-Ready Deployment
 
-This project adapts the attached **Experiment 5: Healthcare RAG Using Multiple File Types** to an API. It keeps the same retrieval design and replaces the local Qwen answer-generation step with **Groq hosted inference**.
+This project adapts the customer-support RAG application to an API. It keeps
+the retrieval design and uses **Groq hosted inference** for answer generation.
 
 ## What is reused from Experiment 5?
 
@@ -9,7 +10,7 @@ This project adapts the attached **Experiment 5: Healthcare RAG Using Multiple F
 | TXT, text-based PDF, and DOCX loading | `support_rag.py` |
 | `RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=80)` | Same defaults, configurable through `.env` |
 | `sentence-transformers/all-MiniLM-L6-v2` | Same embedding model |
-| Persistent ChromaDB with cosine distance | Same approach, collection defaults to `experiment5_healthcare` |
+| Persistent ChromaDB with cosine distance | Same approach, collection defaults to `experiment7_customer_support` |
 | Retrieve up to three chunks | `RAG_TOP_K=3` |
 | Heuristic similarity cutoff of 0.30 | `MIN_SIMILARITY=0.30` |
 | Local Qwen model generates the answer | Replaced by Groq chat completions |
@@ -23,14 +24,14 @@ backend only: it does not perform document retrieval.
 ```text
 experiment7_groq_rag/
 ├── app.py                         # FastAPI /health and /ask endpoints
-├── support_rag.py                 # Experiment 5 pipeline and Groq backend
+├── support_rag.py                 # Customer-support RAG and Groq backend
 ├── requirements.txt               # Lightweight Vercel dependencies
 ├── requirements-local.txt         # Full local app and index-builder dependencies
 ├── api/                           # Lightweight Vercel serverless API
 ├── .env.example                   # Configuration template, no real API key
 ├── .gitignore                     # Excludes secrets and local vector database
 ├── knowledge_base/
-│   └── demo_healthcare_notes.txt  # Small test source, not a full guideline
+│   └── Accounts, payments and support.pdf  # Customer-support source
 ├── tests/
 │   └── test_app.py                # Automated endpoint tests, no Groq quota used
 └── Experiment_7_Lab_Report.md     # Lab report, observations, and viva answers
@@ -43,7 +44,8 @@ experiment7_groq_rag/
 - A Groq API key from the [Groq Console](https://console.groq.com/)
 - TXT, text-based PDF, and/or DOCX documents for the knowledge base
 
-The demo source file enables a small initial test. For a full reproduction of Experiment 5, copy the original `ICMR_Guidance_Document.txt`, `WHO DRUG INFORMATION.docx`, and `WHO guideline for obesiy in adolescents.pdf` into `knowledge_base/`. These original documents are not embedded in the attached PDF export itself, so the project cannot recreate the full 2,873-chunk index from the PDF alone.
+The current knowledge base contains customer-support documents covering
+accounts, payments, orders, shipping, returns, and refunds.
 
 ## 2. Install dependencies
 
@@ -125,14 +127,14 @@ Example request body for `POST /ask`:
 
 ```json
 {
-  "question": "What age range does the WHO guideline define as adolescence?"
+  "question": "How long does standard shipping take?"
 }
 ```
 
 Example request using PowerShell:
 
 ```powershell
-$body = @{ question = "What age range does the WHO guideline define as adolescence?" } | ConvertTo-Json
+$body = @{ question = "How long does standard shipping take?" } | ConvertTo-Json
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/ask -ContentType "application/json" -Body $body
 ```
 
@@ -150,13 +152,18 @@ These unit tests mock the RAG service at the API boundary, so they test validati
 
 Suggested live tests:
 
-1. Supported: `What age range does the WHO guideline define as adolescence?`
-2. Supported: `In the WHO Drug Information document, what does INN stand for?` (requires that source in the knowledge base; the demo note contains this fact.)
-3. Unsupported: `What is the Wi-Fi password of this home router?`
+1. Supported: `How long does standard shipping take?`
+2. Supported: `What is your return policy?`
+3. Unsupported: `What is the weather forecast for Mars tomorrow?`
 4. Invalid: `{"question":"   "}`
 5. Too long: a question with 1,001 characters
 6. Backend failure: temporarily use an invalid/unavailable model or remove the key, then restore the valid configuration after recording the controlled error. Do not publish the key or secret configuration.
 
 ## Important limitation
 
-This is an educational lab implementation, not a complete public production service and not a medical decision tool. Before real deployment, add authentication, HTTPS, rate limiting, monitoring, secure secret management, load testing, systematic RAG evaluation, dependency scanning, and a recovery plan. Do not submit confidential or patient-identifiable data to a third-party model API.
+This is an educational lab implementation, not a complete public production
+service or a binding customer-support policy system. Before real deployment,
+add authentication, HTTPS, rate limiting, monitoring, secure secret
+management, load testing, systematic RAG evaluation, dependency scanning, and
+a recovery plan. Do not submit confidential, payment, or personal data to a
+third-party model API.

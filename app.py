@@ -1,4 +1,4 @@
-"""FastAPI endpoints for Experiment 7: Healthcare RAG with Groq inference."""
+"""FastAPI endpoints for Experiment 7: Customer Support RAG with Groq."""
 
 from __future__ import annotations
 
@@ -25,12 +25,12 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
-logger = logging.getLogger("experiment7_healthcare_rag_api")
+logger = logging.getLogger("experiment7_customer_support_rag_api")
 
 app = FastAPI(
-    title="Experiment 7: Healthcare RAG API",
+    title="Experiment 7: Customer Support RAG API",
     description=(
-        "FastAPI wrapper for the Experiment 5 healthcare RAG pipeline. "
+        "FastAPI wrapper for the customer-support RAG pipeline. "
         "MiniLM and ChromaDB perform retrieval; Groq performs answer generation."
     ),
     version="1.0.0",
@@ -42,8 +42,8 @@ class AskRequest(BaseModel):
         ...,
         min_length=1,
         max_length=1000,
-        description="A question to answer from the healthcare knowledge base (1 to 1,000 characters).",
-        examples=["What age range does the WHO guideline define as adolescence?"],
+        description="A question to answer from the customer-support knowledge base (1 to 1,000 characters).",
+        examples=["How long does standard shipping take?"],
     )
 
     @field_validator("question")
@@ -60,16 +60,16 @@ def health() -> dict[str, Any]:
     """Report API process health; does not call Groq or initialize the embedding model."""
     return {
         "status": "ok",
-        "service": "experiment7-healthcare-rag-api",
+        "service": "experiment7-customer-support-rag-api",
         "rag_initialized": is_rag_initialized(),
         "groq_api_key_configured": bool(os.getenv("GROQ_API_KEY", "").strip())
         and not os.getenv("GROQ_API_KEY", "").strip().startswith("replace_with_"),
     }
 
 
-@app.post("/ask", tags=["Healthcare RAG"])
+@app.post("/ask", tags=["Customer Support RAG"])
 def ask(payload: AskRequest) -> dict[str, Any]:
-    """Retrieve relevant evidence and generate a grounded answer using Groq."""
+    """Retrieve relevant support evidence and generate a grounded answer."""
     started_at = time.perf_counter()
     request_id = uuid4().hex[:12]
 
