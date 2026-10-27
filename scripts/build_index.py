@@ -4,8 +4,8 @@ Run locally once (or after editing knowledge-base files):
     python scripts/build_index.py
 
 Writes api/data/index.json containing chunk texts, source metadata, and
-MiniLM embeddings produced by fastembed (the same model used at query time
-in the serverless function, so vectors remain compatible).
+optional MiniLM embeddings produced by fastembed. The Vercel runtime uses the
+chunk text for lightweight lexical retrieval and does not install fastembed.
 """
 
 from __future__ import annotations

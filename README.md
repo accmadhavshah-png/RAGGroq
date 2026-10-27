@@ -22,7 +22,8 @@ The embedding model and vector index are initialized once per API process, not r
 experiment7_groq_rag/
 ├── app.py                         # FastAPI /health and /ask endpoints
 ├── support_rag.py                 # Experiment 5 pipeline and Groq backend
-├── requirements.txt               # Python dependencies
+├── requirements-local.txt         # Local app and index-builder dependencies
+├── api/                           # Lightweight Vercel serverless API
 ├── .env.example                   # Configuration template, no real API key
 ├── .gitignore                     # Excludes secrets and local vector database
 ├── knowledge_base/
@@ -91,6 +92,19 @@ If the knowledge-base source files change after the index has been built:
 3. Set `REBUILD_INDEX=false` again before the next regular startup.
 
 The index is built from files in this project. The ChromaDB directory created inside the original Colab runtime is not included in the attached Experiment 5 PDF and does not automatically exist on this computer.
+
+## Vercel deployment
+
+Vercel deploys `api/index.py` and installs only `api/requirements.txt`. The
+serverless API reads the committed `api/data/index.json` file and performs
+lightweight BM25-style lexical retrieval using the Python standard library.
+It does not install `fastembed`, PyTorch, or ChromaDB, which keeps the Python
+function below Vercel's bundle-size limit. `fastembed` remains available in
+`requirements-local.txt` only for rebuilding the optional local index.
+
+Set `GROQ_API_KEY` in the Vercel project environment variables, then redeploy
+from the `main` branch. The other deployment settings in `vercel.json` provide
+the default model and retrieval configuration.
 
 ## 5. Run the API
 

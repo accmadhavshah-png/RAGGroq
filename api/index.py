@@ -1,8 +1,9 @@
 """Vercel serverless API for the healthcare RAG (Experiment 7).
 
-Same endpoints as the local version (/health, /ask), but retrieval uses a
-precomputed MiniLM index (api/data/index.json) and fastembed for query
-embeddings, so no torch/ChromaDB is needed at runtime.
+The deployment uses the precomputed index in ``api/data/index.json``. Query
+retrieval is deliberately implemented with the Python standard library so the
+Vercel function does not need to install a native ML runtime or download an
+embedding model on cold start.
 """
 
 from __future__ import annotations
@@ -10,8 +11,10 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 import uuid
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -43,53 +46,78 @@ def _load_index() -> dict[str, Any]:
         raise RetrievalUnavailableError("Precomputed index is missing from the deployment.")
     with _DATA_PATH.open("r", encoding="utf-8") as fh:
         index = json.load(fh)
-    if not index.get("chunks") or len(index["chunks"]) != len(index.get("vectors", [])):
+    if not index.get("chunks"):
         raise RetrievalUnavailableError("Precomputed index is empty or malformed.")
     return index
 
 
-def _load_embedder() -> Any:
-    try:
-        from fastembed import TextEmbedding
-    except ImportError as exc:
-        raise RetrievalUnavailableError("Embedding runtime is unavailable.") from exc
-    return TextEmbedding(
-        model_name=EMBEDDING_MODEL, cache_dir="/tmp/fastembed_cache", threads=1
-    )
+_TOKEN_RE = re.compile(r"[a-z0-9]{3,}")
+_STOP_WORDS = {
+    "a", "about", "an", "and", "are", "as", "at", "be", "by", "can", "did",
+    "do", "does", "for", "from", "how", "i", "in", "is", "it", "of", "on",
+    "or", "the", "this", "to", "was", "what", "when", "where", "which",
+    "why", "with", "you",
+}
 
 
-_EMBEDDER: Any = None
-
-
-def _get_embedder() -> Any:
-    global _EMBEDDER
-    if _EMBEDDER is None:
-        _EMBEDDER = _load_embedder()
-    return _EMBEDDER
-
-
-def _embed_query(text: str) -> list[float]:
-    return next(iter(_get_embedder().embed([text]))).tolist()
+def _tokenize(text: str) -> list[str]:
+    """Return small, dependency-free search terms for lexical retrieval."""
+    return [token for token in _TOKEN_RE.findall(text.casefold()) if token not in _STOP_WORDS]
 
 
 def _retrieve(question: str, index: dict[str, Any]) -> list[dict[str, Any]]:
-    vectors = index["vectors"]
-    count = len(index["chunks"])
-    query = _embed_query(question)
-    # Normalize the query vector, then plain dot products (fastembed outputs
-    # are normalized; normalizing defensively keeps cosine semantics).
-    norm = math.sqrt(sum(v * v for v in query)) or 1.0
-    query = [v / norm for v in query]
+    chunks = index["chunks"]
+    query_terms = _tokenize(question)
+    if not query_terms:
+        return []
 
-    scored: list[tuple[float, int]] = []
-    for i, vector in enumerate(vectors):
-        score = sum(q * v for q, v in zip(query, vector))
-        if score >= MIN_SIMILARITY:
-            scored.append((score, i))
-    scored.sort(reverse=True)
+    # BM25-style scoring gives useful term-frequency and rarity weighting
+    # without pulling a 5+ GB native embedding stack into the serverless
+    # bundle. The old MiniLM vectors remain accepted in the index file, but
+    # are not needed by the Vercel runtime.
+    tokenized_chunks = [_tokenize(str(chunk.get("text", ""))) for chunk in chunks]
+    document_frequency = Counter(
+        term for tokens in tokenized_chunks for term in set(tokens)
+    )
+    document_count = len(chunks)
+    average_length = sum(map(len, tokenized_chunks)) / max(1, document_count)
+    query_term_set = set(query_terms)
+    query_idf = {
+        term: math.log(
+            1.0
+            + (document_count - document_frequency.get(term, 0) + 0.5)
+            / (document_frequency.get(term, 0) + 0.5)
+        )
+        for term in query_term_set
+    }
+    query_weight = sum(query_idf.values()) or 1.0
+    scored: list[tuple[float, float, int]] = []
+    for i, tokens in enumerate(tokenized_chunks):
+        if not tokens:
+            continue
+        frequencies = Counter(tokens)
+        document_length = len(tokens)
+        score = 0.0
+        matched_weight = 0.0
+        for term in query_term_set:
+            frequency = frequencies.get(term, 0)
+            if not frequency:
+                continue
+            inverse_frequency = query_idf[term]
+            matched_weight += inverse_frequency
+            denominator = frequency + 1.2 * (
+                1.0 - 0.75 + 0.75 * document_length / max(1.0, average_length)
+            )
+            score += inverse_frequency * (frequency * 2.2) / denominator
+        # Convert the BM25 score to a 0..1 query-coverage score so the
+        # existing MIN_SIMILARITY setting keeps its documented meaning.
+        similarity = matched_weight / query_weight
+        if similarity >= MIN_SIMILARITY:
+            scored.append((similarity, score, i))
+    scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
     results = []
-    for score, i in scored[: max(1, TOP_K)]:
-        chunk = index["chunks"][i]
+    for similarity, _, i in scored[: max(1, TOP_K)]:
+        chunk = chunks[i]
         source = str(chunk.get("source") or "Unknown source")
         page = chunk.get("page")
         label = f"{source} (PDF page {page + 1})" if isinstance(page, int) else source
@@ -97,7 +125,7 @@ def _retrieve(question: str, index: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "source_label": label,
                 "file_type": chunk.get("file_type"),
-                "similarity": round(float(score), 3),
+                "similarity": round(float(similarity), 3),
                 "text": chunk["text"],
             }
         )
