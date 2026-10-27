@@ -8,238 +8,188 @@
 **UID:** 2024301026
 
 **GitHub:** https://github.com/accmadhavshah-png/RAGGroq
-**Vercel deployment:** https://raggroq.vercel.app/docs
-
----
+**Vercel:** https://raggroq.vercel.app/docs
 
 ## 1. Aim
 
-To prepare the RAG application from Experiment 5 for API-based use by adding
-FastAPI endpoints, input validation, controlled error handling, basic logging,
+To prepare the Customer Support RAG application for API use by adding FastAPI
+endpoints, input validation, controlled error handling, logging,
 response-time measurement, and endpoint testing.
 
 ## 2. Learning outcomes
 
-After completing this experiment, the following outcomes are demonstrated:
-
-- A notebook-style RAG prototype can be exposed as a reusable HTTP API.
-- FastAPI can validate requests and generate interactive Swagger documentation.
-- A cloud-hosted LLM API can be separated from the retrieval pipeline.
-- Empty and oversized inputs can be rejected safely.
-- Provider, configuration, and retrieval failures can be mapped to controlled
-  HTTP errors.
-- Operational events and response latency can be recorded without logging
-  secrets or user questions.
-- The application can return an uncertainty response when the knowledge base
-  does not contain enough evidence.
+This experiment demonstrates how to expose a RAG prototype through an HTTP API,
+validate requests, separate retrieval from generation, handle provider errors
+safely, record latency, and return an uncertainty response when the documents
+do not contain the answer.
 
 ## 3. Background and theory
 
-Retrieval-Augmented Generation (RAG) combines document retrieval with language
-generation. Instead of asking the language model to answer from memory, the
-application first searches a knowledge base and supplies the most relevant
-passages as context.
+Retrieval-Augmented Generation combines document retrieval with language
+generation. The application first searches the knowledge base and then sends
+the most relevant passages to the language model as context.
 
-The local pipeline performs the following operations:
+The local pipeline loads TXT, PDF, and DOCX files, splits them into 500-character
+chunks with 80-character overlap, embeds them with
+`sentence-transformers/all-MiniLM-L6-v2`, stores them in ChromaDB, and retrieves
+up to three passages above the configured similarity cutoff. Groq generates the
+answer from the retrieved passages.
 
-1. Load TXT, text-based PDF, and DOCX files from `knowledge_base/`.
-2. Split documents into chunks of 500 characters with an 80-character overlap.
-3. Embed the chunks with `sentence-transformers/all-MiniLM-L6-v2` through
-   `HuggingFaceEmbeddings`.
-4. Store embeddings, text, and source metadata in ChromaDB.
-5. Embed a question and retrieve the most similar passages.
-6. Send the retrieved passages to Groq as reference context.
-7. Generate a short answer using only the supplied passages.
+The retriever and generation backend are separate. Groq can therefore be
+changed without rebuilding the document-loading and vector-search components.
+The generation prompt instructs the model not to invent policies, prices,
+order status, refunds, or delivery promises that are absent from the sources.
 
-The retriever and generation backend are separate. Therefore, the Groq model
-can be changed without rewriting the document loader or vector search logic.
-The system prompt instructs the model not to invent an answer when the
-retrieved passages are insufficient.
-
-For the Vercel serverless deployment, the precomputed index is used with a
-lightweight standard-library lexical retriever. This avoids installing native
-ML dependencies inside the serverless function. The full local implementation
-continues to use MiniLM and ChromaDB.
+The Vercel function uses a precomputed index and lightweight standard-library
+retrieval because the native embedding stack exceeds the serverless bundle
+limit. The local implementation uses MiniLM and ChromaDB.
 
 ## 4. Required tools
 
 - Python 3.10 or later
-- VS Code or another Python editor
-- Terminal or PowerShell
-- FastAPI and Uvicorn
-- HTTP client support through FastAPI TestClient and `httpx`
-- The knowledge base and retrieval logic from Experiment 5
+- VS Code or another editor and a terminal
+- FastAPI, Uvicorn, Pydantic, and `httpx`
+- The Experiment 5 RAG logic and customer-support knowledge base
 - A Groq account and API key
-- Internet access for Groq inference and the first local embedding-model
-  download
+- Internet access for Groq and the first local embedding-model download
 
 ## 5. Selected LLM backend
 
-### Option A — Cloud-hosted API: Groq
+### Option A: Cloud-hosted Groq API
 
-This project selects the cloud-hosted backend. Groq runs the generation model
-on its servers. The application calls the Groq API using the model configured
-in `GROQ_MODEL` and the secret stored in `GROQ_API_KEY`.
+Groq is the selected backend. The generation model runs on Groq servers and is
+called with `GROQ_MODEL` and `GROQ_API_KEY`. The key is loaded from `.env`
+locally or Vercel Environment Variables and is never hard-coded or committed.
 
-The key is loaded from `.env` locally or from Vercel Environment Variables in
-deployment. It is not hard-coded in Python source and is excluded from Git by
-`.gitignore`.
+Ollama was not selected. This project uses Hugging Face MiniLM for local
+embeddings and Groq for answer generation.
 
-### Option B — Ollama
+## 6. Current knowledge base
 
-Ollama was not selected for this implementation. The original report incorrectly
-described Ollama as the embedding backend. The actual implementation uses
-Hugging Face MiniLM embeddings locally and Groq for answer generation.
+The current customer-support sources are:
 
-## 6. Implementation
+- `Accounts, payments and support.pdf`
+- `Orders_and_Shipping.pdf`
+- `Returns and refunds.pdf`
 
-### API endpoints
+The precomputed deployment index contains 24 chunks from these three files.
 
-#### `GET /health`
+## 7. Implementation
 
-Returns API status, whether the reusable RAG service has initialized, and
-whether a non-placeholder Groq key is configured. It does not call Groq or
-load the embedding model. Therefore, it confirms that the API process is
-responding, but is not a complete dependency or provider health check.
+### `GET /health`
 
-#### `POST /ask`
+Returns the API status, service name, RAG initialization state, and whether a
+non-placeholder Groq key is configured. It does not call Groq or initialize the
+embedding model, so it confirms process availability but not every dependency.
 
-Accepts:
+### `POST /ask`
+
+Accepts a JSON body such as:
 
 ```json
 {
-  "question": "What does the document say about diagnostic validation?"
+  "question": "How can I track my order?"
 }
 ```
 
-The response contains `answer`, `sources`, `retrieved_count`, `model`,
-`request_id`, and `latency_ms`.
+Successful responses include `request_id`, `answer`, `sources`,
+`retrieved_count`, `model`, and `latency_ms`.
 
 ### Input validation
 
 The `question` field must contain non-whitespace text and must not exceed 1,000
-characters. Invalid requests return HTTP 422 through Pydantic/FastAPI
-validation.
+characters. FastAPI/Pydantic returns HTTP 422 for invalid input.
 
 ### Error handling
 
-| Failure | HTTP status | Public response |
+| Failure | Status | Handling |
 |---|---:|---|
-| Invalid request | 422 | Validation details |
+| Invalid request | 422 | FastAPI validation response |
 | Missing Groq key | 503 | Generic configuration message |
-| Groq/provider failure | 502 | Generic provider failure message |
-| RAG initialization failure | 503 | Retrieval service unavailable |
-| Unexpected internal failure | 500 | Generic internal error |
+| Groq/provider failure | 502 | Generic provider message |
+| RAG initialization failure | 503 | Retrieval unavailable message |
+| Unexpected exception | 500 | Generic internal-error message |
 
-Provider response bodies, prompts, secrets, and stack traces are not returned
-to the client.
+Secrets, stack traces, provider response bodies, prompts, and private user data
+are not returned to clients or written to logs.
 
-### Logging and timing
+### Reuse, logging, and latency
 
-The `/ask` endpoint records request ID, endpoint, status, latency, retrieved
-count, and exception type where appropriate. User questions and credentials are
-not written to logs. Response time is measured with `time.perf_counter()` and
-returned as `latency_ms`.
+`get_rag_service()` lazily creates one reusable RAG service per process. The
+embedding model, ChromaDB collection, and Groq client are reused. Logs include
+request ID, endpoint, status, latency, retrieved count, and exception type.
+Latency is measured with `time.perf_counter()` and returned as `latency_ms`.
 
-### Reusable components
+## 8. Procedure
 
-The local RAG service is lazily initialized by `get_rag_service()` and reused
-for subsequent requests in the same process. The embedding model, ChromaDB
-client, collection, and Groq client are not recreated for every request.
-
-## 7. Procedure
-
-1. Create a virtual environment.
+1. Create and activate a virtual environment.
 
    ```powershell
    py -3 -m venv .venv
    .\.venv\Scripts\Activate.ps1
    ```
 
-2. Install the complete local dependency set.
+2. Install local dependencies.
 
    ```powershell
    python -m pip install --upgrade pip
    pip install -r requirements-local.txt
    ```
 
-3. Create the local configuration file.
-
-   ```powershell
-   Copy-Item .env.example .env
-   ```
-
-4. Add the private Groq key to `.env`.
-
-   ```dotenv
-   GROQ_API_KEY=your_private_key
-   GROQ_MODEL=openai/gpt-oss-20b
-   ```
-
-5. Place source documents under `knowledge_base/`. Supported extensions are
-   `.txt`, `.pdf`, and `.docx`.
-
-6. Start the API.
+3. Copy `.env.example` to `.env` and add the private Groq key.
+4. Place customer-support documents in `knowledge_base/`.
+5. If the documents change, set `REBUILD_INDEX=true` for one startup and then
+   set it back to `false`.
+6. Run:
 
    ```powershell
    uvicorn app:app --host 127.0.0.1 --port 8000 --reload
    ```
 
-7. Open Swagger UI at `http://127.0.0.1:8000/docs`.
-8. Test `GET /health` and `POST /ask`.
-9. Test supported, unsupported, invalid, and backend-failure cases.
-10. Record HTTP status, answer, sources, and latency in the observation table.
+7. Open `http://127.0.0.1:8000/docs` and submit requests.
+8. Test supported, unsupported, invalid, and backend-failure cases.
 
-## 8. Suggested project structure
+## 9. Project structure
 
 ```text
 experiment7_groq_rag/
 ├── app.py                         # FastAPI endpoints and validation
-├── support_rag.py                 # Load, split, embed, retrieve, and Groq
+├── support_rag.py                 # Loading, retrieval, and Groq generation
 ├── requirements.txt               # Lightweight Vercel dependencies
 ├── requirements-local.txt         # Full local dependencies
 ├── .env.example                   # Safe configuration template
-├── api/index.py                   # Vercel serverless implementation
-├── api/data/index.json            # Precomputed deployment index
-├── knowledge_base/                # TXT, PDF, and DOCX sources
-├── tests/test_app.py              # Endpoint and failure tests
+├── api/index.py                   # Vercel serverless API
+├── api/data/index.json            # Precomputed support index
+├── knowledge_base/                # Support PDFs
+├── tests/test_app.py              # Automated tests
 └── Experiment_7_Lab_Report.md     # This report
 ```
 
-## 9. Testing checklist
+## 10. Testing checklist and observations
 
-| Checklist item | Implementation/evidence | Status |
-|---|---|---|
-| `GET /health` succeeds | Health endpoint and automated test | Pass |
-| Valid question receives an answer | `/ask` returns answer, sources, model, and latency | Pass |
-| Empty question is rejected | Pydantic minimum length and whitespace validator | Pass |
-| Very long question is rejected | Pydantic `max_length=1000` | Pass |
-| Unsupported question uses fallback | Empty retrieval returns insufficient-information message | Pass |
-| Backend failure is controlled | `GroqRequestError` maps to HTTP 502 | Pass |
-| Response time is recorded | `latency_ms` returned in successful responses | Pass |
-| Secrets are protected | `.env` ignored and logs avoid credentials | Pass |
-| Swagger UI is available | FastAPI automatically exposes `/docs` | Verify after latest deployment |
-
-## 10. Observation table
-
-| Test case | Expected result | Actual result | Result |
+| Test case | Expected result | Actual result | Status |
 |---|---|---|---|
-| Health endpoint | API reports that it is running | HTTP 200 with `status: ok` | Pass |
-| Supported question | Grounded answer and sources are returned | Automated endpoint test returns HTTP 200 with a shipping answer, source metadata, and latency | Pass |
-| Unsupported question | Insufficient-information fallback | Automated test confirms zero retrieved passages and fallback text | Pass |
+| Health endpoint | API reports running | HTTP 200 and `status: ok` | Pass |
+| Supported question | Grounded answer and sources | Local retrieval returns `Orders_and_Shipping.pdf` for “How can I track my order?” | Pass |
+| Unsupported question | Insufficient-information fallback | Automated test confirms zero passages and fallback text | Pass |
 | Empty question | Validation error | HTTP 422 | Pass |
-| Question longer than 1,000 characters | Validation error | HTTP 422 | Pass |
-| Backend unavailable | Controlled error without private details | HTTP 502 in automated test | Pass |
-| Response-time measurement | Latency is recorded | `latency_ms` is present in the response | Pass |
+| Question over 1,000 characters | Validation error | HTTP 422 | Pass |
+| Backend unavailable | Controlled error | HTTP 502 with no private details | Pass |
+| Response-time measurement | Latency recorded | `latency_ms` is returned | Pass |
+| Secret protection | No key in source or logs | `.env` is ignored and logs redact private details | Pass |
+| Swagger UI | Interactive documentation loads | Verify after redeploying the latest commit | Pending live capture |
 
-The supported customer-support questions for the live Swagger test are:
+The local retrieval check returned:
 
-- `How long does standard shipping take?`
-- `What is your return policy?`
+```text
+Orders_and_Shipping.pdf (PDF page 1), similarity 0.712
+Orders_and_Shipping.pdf (PDF page 2), similarity 0.501
+Accounts, payments and support.pdf (PDF page 1), similarity 0.457
+```
 
-The expected evidence sources are `Orders_and_Shipping.pdf` and
-`Returns and refunds.pdf`. The live `/docs` screenshot should be captured after
-the latest deployment and the actual provider latency should be recorded.
+The final submission should include a Swagger screenshot for a supported
+question such as `How long does standard shipping take?` and an unsupported
+question such as `What is the weather forecast for Mars tomorrow?`.
 
 ## 11. Automated tests
 
@@ -250,102 +200,86 @@ python -m pytest -q
 ```
 
 The test suite covers health success, valid response shape, whitespace-only
-rejection, question-length validation, unsupported-question fallback, and
-provider failure without leaking private exception text. The tests replace the
-RAG service with controlled fake services and do not consume Groq quota.
+rejection, maximum-length validation, unsupported fallback, and provider
+failure without exposing private exception details. The tests use fake RAG
+services and do not consume Groq quota.
 
 ## 12. Result
 
-The Experiment 5 RAG application was exposed through FastAPI. The final
-application includes request validation, reusable retrieval components,
-separate Groq generation, safe exception handling, operational logging,
-response-time measurement, automated endpoint tests, and interactive Swagger
-documentation.
-
-The selected backend is **Groq cloud-hosted inference**. The local retrieval
-pipeline uses MiniLM embeddings and ChromaDB. The Vercel deployment uses a
-precomputed index and lightweight retrieval to satisfy serverless bundle-size
-limits.
+The Customer Support RAG application was exposed through FastAPI and prepared
+for deployment. It includes input validation, reusable retrieval components,
+separate Groq generation, safe error handling, operational logging,
+response-time measurement, automated endpoint tests, and Swagger documentation.
 
 ## 13. Discussion questions and answers
 
 ### 1. What is the purpose of FastAPI?
 
-FastAPI exposes Python functions as HTTP endpoints. It validates request data,
-returns structured JSON responses, handles HTTP errors, and automatically
-generates interactive OpenAPI/Swagger documentation.
+FastAPI exposes Python functions as HTTP endpoints, validates requests, returns
+structured JSON, handles HTTP errors, and generates Swagger documentation.
 
-### 2. What is the difference between a local LLM and a cloud-hosted LLM API?
+### 2. What is the difference between a local LLM and a cloud-hosted API?
 
-A local LLM runs on the user's computer and needs local model files, memory,
-and compute. A cloud-hosted API runs the model on provider infrastructure and
-is accessed through a network request and authentication key.
+A local LLM runs on the user's computer and needs local model files and compute.
+A cloud API runs remotely and is accessed through a network request and key.
 
 ### 3. Does hosting FastAPI in the cloud automatically host the LLM there?
 
-No. Hosting FastAPI on Vercel hosts the API code. In this project, Groq still
-hosts and runs the generation model separately.
+No. Vercel hosts the API code, while Groq separately hosts and runs the model.
 
-### 4. Why should an API key not be hard-coded in Python source?
+### 4. Why should an API key not be hard-coded?
 
-Source code may be uploaded, copied, logged, or viewed by other people. A
-hard-coded key could be misused and consume quota. Environment variables and
-platform secret storage keep it separate from source code.
+Source code can be copied or published. A hard-coded key could be misused and
+consume quota. Environment variables keep the secret separate from the code.
 
-### 5. What is input validation, and why is a maximum question length useful?
+### 5. What is input validation and why is maximum length useful?
 
-Input validation checks whether a request follows defined rules before the
-application processes it. A maximum length reduces oversized prompts, latency,
-provider cost, and abuse.
+Validation checks input rules before processing. A maximum length controls
+prompt size, cost, latency, and abuse.
 
-### 6. What is the purpose and limitation of a health endpoint?
+### 6. What is the purpose and limitation of `/health`?
 
-It provides a quick indication that the API process is responding. It does not
-prove that the embedding model, vector database, knowledge base, Groq provider,
-or every external dependency is available.
+It shows that the API process responds. It does not guarantee that the model,
+database, knowledge base, or provider is healthy.
 
-### 7. Why should the model and vector index not be loaded for every request?
+### 7. Why should models and indexes not load for every request?
 
-Loading them repeatedly increases latency, consumes memory, and wastes CPU and
-network resources. Reusing initialized components makes requests faster and
-more predictable.
+Repeated loading is slow and memory-intensive. Reuse improves latency and
+resource usage.
 
-### 8. What should RAG do when the answer is absent from its knowledge base?
+### 8. What should RAG do when the answer is absent?
 
-It should state that the supplied documents do not provide enough information.
-It should not invent a policy, citation, refund rule, or unsupported answer.
+It should return an insufficient-information response instead of inventing a
+policy, refund rule, delivery promise, or citation.
 
-### 9. Name two reasons a cloud inference request might fail.
+### 9. Give two reasons a cloud request might fail.
 
-Possible reasons include an invalid or missing API key, quota exhaustion, rate
-limiting, network failure, unavailable model, provider outage, or malformed
-request.
+Invalid credentials, quota exhaustion, rate limiting, network failure, an
+unavailable model, provider outage, or malformed input can cause failure.
 
-### 10. Is this lab application fully production-ready?
+### 10. Is this fully production-ready?
 
-No. A public service would additionally require authentication, HTTPS, rate
-limiting, monitoring, secure secret management, load testing, systematic RAG
-evaluation, dependency scanning, and a recovery plan.
+No. A public system also needs authentication, HTTPS, rate limiting, monitoring,
+load testing, evaluation, dependency scanning, secure secret management, and a
+recovery plan.
 
 ## 14. Precautions and limitations
 
-- Free or trial inference quotas can change and may be rate-limited.
-- API keys must never be committed to GitHub or shown in screenshots.
-- Do not send confidential, payment, or personal data
-  to a third-party model provider.
-- The similarity cutoff is a heuristic and is not an accuracy guarantee.
-- The application is educational and is not a binding customer-support policy
-  system.
-- Scanned image PDFs may require OCR before text extraction works.
-- The Vercel serverless version uses lightweight lexical retrieval because the
-  native embedding stack exceeds the function bundle-size limit.
+- Cloud quotas, models, and availability can change.
+- Never commit API keys or show them in screenshots.
+- Do not send confidential payment or personal data to a third-party provider.
+- Similarity scores are heuristics, not accuracy guarantees.
+- The application is educational and is not a binding support-policy system.
+- Scanned PDFs may require OCR.
+- The Vercel function uses lightweight retrieval because native ML dependencies
+  exceed the serverless bundle limit.
 
 ## 15. References
 
 - FastAPI: https://fastapi.tiangolo.com/
 - Uvicorn: https://www.uvicorn.org/
-- Groq documentation: https://console.groq.com/docs
-- LangChain documentation: https://python.langchain.com/docs/
+- Groq: https://console.groq.com/docs
+- LangChain: https://python.langchain.com/docs/
 - Hugging Face MiniLM: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
 - Hugging Face Inference Providers: https://huggingface.co/docs/inference-providers
-- Ollama documentation: https://docs.ollama.com/
+- Ollama: https://docs.ollama.com/
