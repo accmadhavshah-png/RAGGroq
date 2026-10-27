@@ -1,0 +1,9 @@
+# Runtime dependencies for the Vercel serverless function (api/index.py).
+# Keep this minimal - Vercel functions have a 250 MB (compressed 500 MB) limit.
+# For running the full local app (support_rag.py with torch/ChromaDB), install
+# requirements-local.txt instead.
+fastapi>=0.115.0,<1.0.0
+pydantic>=2.8.0,<3.0.0
+python-dotenv>=1.0.1,<2.0.0
+httpx>=0.27.0,<1.0.0
+fastembed>=0.7.0,<1.0.0
